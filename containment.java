@@ -1,7 +1,7 @@
 import java.util.*;
 import java.io.*;
 public class containment {
-	static boolean local = true;
+	static boolean local = false;
 public static void main(String[] args) throws IOException
 {
 	if(!local && args.length != 3)
