@@ -4,7 +4,7 @@ public class FileIntersect {
 public static void main(String[] args) throws IOException
 {
 	String fn1 = "/home/mkirsche/ecoli/oxford_against_ref.paf.filtered";
-	String fn2 = "/home/mkirsche/ecoli/oxford_filtered_miniasm.fasta";
+	String fn2 = "/home/mkirsche/ecoli/oxford_filtered_miniasmclone.fasta";
 	Scanner input1 = new Scanner(new FileInputStream(new File(fn1)));
 	Scanner input2 = new Scanner(new FileInputStream(new File(fn2)));
 	
