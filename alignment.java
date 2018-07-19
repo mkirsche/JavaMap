@@ -1,54 +1,193 @@
 import java.util.*;
 import java.io.*;
 public class alignment {
-	// k is the length of kmers used for sketches
-	static int k = 15;
-	// w is the window size used for sketches
-	static int w = 5;
-	// map maps base pairs to integers ('A' = 1, 'C' = 2, 'G' = 3, 'T' = 4)
-	static int[] map;
-	// EPS is the maximum relative distance between shared kmers that can form a chain
-	static int EPS = 500;
-	// f is the proportion of kmers which are considered repeats
-	static double f = 0.001;
-	// batchSize is how many reads to put in the database at once
-	static int batchSize = 21000;
-	// minOverlap is the minimum number of base pairs which an overlap needs to span
-	static int minOverlap = 100;
-	// c is the minimum number of matching minimizers in an overlap
-	static int c = 4;
-	// posBits is the number of bits needed to store the position within a read
-	static int posBits = 20;
-	// pos1Mask will have 1s in positions which are used to encode query position in hit (more below)
-	static long pos1Mask;
-	// pos2Mask will have 1s in positions which are used to encode target position in hit (more below)
-	static long pos2Mask;
-	// writeFile is whether or not to write the alignments to a file
-	static boolean writeFile = true;
-	// overallFilter is whether or not to use a single repeat filter for all batches
-	static boolean overallFilter = false;
-	// Method for initializing global variables
-	static void init()
+
+// Used to skip input/output command line args when running locally
+static boolean local = true;
+	
+// k is the length of kmers used for sketches
+static int k = 15;
+// w is the window size used for sketches
+static int w = 5;
+// map maps base pairs to integers ('A' = 1, 'C' = 2, 'G' = 3, 'T' = 4)
+static int[] map;
+// EPS is the maximum relative distance 
+// between shared kmers that can form a chain
+static int EPS = 500;
+// f is the proportion of kmers which are considered repeats
+static double f = 0.001;
+// batchSize is how many reads to put in the database at once
+static int batchSize = 21000;
+// minOverlap is the minimum number of base pairs
+// which an overlap needs to span
+static int minOverlap = 100;
+// c is the minimum number of matching minimizers in an overlap
+static int c = 4;
+// posBits is the number of bits neede
+// to store the position within a read
+static int posBits = 20;
+// pos1Mask will have 1s in positions which are used
+// to encode query position in hit (more below)
+static long pos1Mask;
+// pos2Mask will have 1s in positions which are used
+// to encode target position in hit (more below)
+static long pos2Mask;
+// writeFile is whether or not to write the alignments to a file
+static boolean writeFile = true;
+// overallFilter is whether or not 
+// to use a single repeat filter for all batches
+static boolean overallFilter = false;
+// File names
+static String fn = "/home/mkirsche/ecoli/oxford.fasta";
+static String outFn = "/home/mkirsche/ecoli/oxford.paf";
+
+// Whether or not to just output help message and quit
+static boolean needsHelp = false;
+
+/*
+ * Method for parsing command line arguments
+ */
+static void parseArgs(String[] args)
+{
+	int n = args.length;
+	boolean hasInput = false;
+	boolean hasOutput = false;
+	for(int i = 0; i<n-1; i++)
 	{
-		map = new int[256];
-		map['A'] = 0; map['C'] = 1; map['G'] = 2; map['T'] = 3;
-		pos1Mask = ((1L<<posBits) - 1) << posBits;
-		pos2Mask = (1<<posBits) - 1;
+		String cur = args[i];
+		switch(cur) {
+			case("-c"): 
+				c = Integer.parseInt(args[i+1]);
+				i++;
+				break;
+			case("-minLength"):
+				minOverlap = Integer.parseInt(args[i+1]);
+				i++;
+				break;
+			case("-b"):
+				batchSize = Integer.parseInt(args[i+1]);
+				i++;
+				break;
+			case("-pb"): 
+				posBits = Integer.parseInt(args[i+1]);
+				i++;
+				break;
+			case("-in"):
+				fn = args[i+1];
+				i++;
+				hasInput = true;
+				break;
+			case("-out"):
+				outFn = args[i+1];
+				if(args[i+1].equals("stdout"))
+				{
+					writeFile = false;
+				}
+				i++;
+				hasOutput = true;
+				break;
+			case("--overallFilter"):
+				overallFilter = true;
+				break;
+			case("-f"):
+				f = Double.parseDouble(args[i+1]);
+				i++;
+				break;
+			case("-k"):
+				k = Integer.parseInt(args[i+1]);
+				i++;
+				break;
+			case("-w"):
+				w = Integer.parseInt(args[i+1]);
+				i++;
+				break;
+			case("-eps"):
+				EPS = Integer.parseInt(args[i+1]);
+				i++;
+				break;
+			default:
+				needsHelp = true;
+		}
 	}
+	if(!local && !(hasInput && hasOutput)) needsHelp = true;
+}
+	
+/*
+ * Method for outputting usage information
+ */
+static void usage()
+{
+	PrintWriter out = new PrintWriter(System.out);
+	out.println("MegaMap: Java implementation of MiniMap");
+	out.println();
+	out.println("Usage:");
+	out.println("java alignment [options]* -in <input> -out <output>");
+	out.println();
+	out.printf("%-18s%s\n", "<input>", "Fasta file containing reads");
+	out.printf("%-18s%s\n", "<output>", "Name of PAF file to be output");
+	out.println("Options:");
+	out.printf("  %-18s%s\n", "-k <int>", 
+			"kmer size used for minimizers (15)");
+	out.printf("  %-18s%s\n", "-w <int>", 
+			"window size used for minimizers (5)");
+	out.printf("  %-18s%s\n", "-b <int>", 
+			"maximum number of reads in database at once (21000)");
+	out.printf("  %-18s%s\n", "-c <int>", 
+			"minimum number of minimizers hits in mapping (4)");
+	out.printf("  %-18s%s\n", "-f <float>", 
+			"proportion of minimizers considered repeats (0.001)");
+	out.printf("  %-18s%s\n", "-pb <int>", 
+			"log_2 of max read length (20)");
+	out.printf("  %-18s%s\n",  "-eps <int>",
+			"maximum difference in relative position of hits (500)");
+	out.printf("  %-18s%s\n", "-minLength <int>", 
+			"minimum mapping length in basepairs (100)");
+	out.println();
+	out.printf("  %-18s%s\n", "--overallFilter", 
+			"option to filter repeats with all reads rather than per-batch");
+	out.println();
+	out.close();
+}
+	
+/*
+ * Method for initializing global variables
+ */
+static void init(String[] args)
+{
+	parseArgs(args);
+	map = new int[256];
+	map['A'] = 0; map['C'] = 1; map['G'] = 2; map['T'] = 3;
+	pos1Mask = ((1L<<posBits) - 1) << posBits;
+	pos2Mask = (1<<posBits) - 1;
+}
+	
 public static void main(String[] args) throws IOException
 {
 	// Variables used for timing metrics
 	long minimizerTime = 0;
 	long chainTime = 0;
 	long startTime = System.currentTimeMillis();
-	PrintWriter out = new PrintWriter(System.out);
-	if(writeFile) out = new PrintWriter(new File("/home/mkirsche/ecoli/oxford.paf"));
 	
 	// Initialize global variables
-	init();
+	try
+	{
+		init(args);
+	} 
+	catch(Exception e)
+	{
+		needsHelp = true;
+	};
 	
-	String fn = "/home/mkirsche/ecoli/oxford.fasta";
+	if(needsHelp || args.length > 0 && args[0].equals("--help"))
+	{
+		usage();
+		return;
+	}
+	
+	// Initialize I/O streams
 	Scanner input = new Scanner(new FileInputStream(new File(fn)));
+	PrintWriter out = new PrintWriter(System.out);
+	if(writeFile) out = new PrintWriter(new File(outFn));
 	
 	// Get reads/names from fasta file
 	ArrayList<String> names = new ArrayList<String>();
@@ -61,10 +200,10 @@ public static void main(String[] args) throws IOException
 		String read = input.nextLine();
 		reads.add(read);
 	}
-	int readsProcessed = 0; // Number of reads added to minimizer database so far
+	int readsProcessed = 0; // Number of reads added to database so far
 	int n = reads.size(); // Total number of reads
 	
-	// A list of hash values which show up too frequently and are considered repeats
+	// A list of hash values which show up frequently and are considered repeats
 	HashSet<Long> toRemove = new HashSet<Long>();
 	
 	// If overallFilter is turned on, an initial pass over all reads is made 
@@ -300,6 +439,7 @@ public static void main(String[] args) throws IOException
 	System.out.println("Time chaining hits (ms): " + chainTime);
 	out.close();
 }
+
 /*
  * Chains together database hits:
  * 
@@ -405,6 +545,7 @@ static int[] alignmentChain(LongList hits, int b, int e, boolean reverse)
 	
 	return new int[] {startPos, endPos, startPos2, endPos2, lis};
 }
+
 /*
  * The following few methods rely on representing a "hit" as a 64-bit integer
  * A hit is when a minimizer in a query matches an entry in a minimizer database
@@ -419,6 +560,7 @@ static long getHit(int seq, int strand, int p1, int p2)
 		+ (((long)strand) << (2 * posBits)) 
 		+ (((long)p1) << posBits) + p2;
 }
+
 /*
  * Extracts the strand from an encoded hit
  */
@@ -426,6 +568,7 @@ static int getHitStrand(long hit)
 {
 	return (int)((hit >> (2*posBits)) & 1);
 }
+
 /*
  * Extracts the target sequence id from an encoded hit
  */
@@ -433,6 +576,7 @@ static int getHitSeq(long hit)
 {
 	return (int)(hit >> (2*posBits+1));
 }
+
 /*
  * Extracts the query position from an encoded hit
  */
@@ -440,6 +584,7 @@ static int getHitP1(long hit)
 {
 	return (int)((hit&pos1Mask) >> posBits);
 }
+
 /*
  * Extracts the target position from an encoded hit
  */
@@ -447,6 +592,7 @@ static int getHitP2(long hit)
 {
 	return (int)(hit&pos2Mask);
 }
+
 /*
  * Extracts the difference in target vs. query positions from an encoded hit
  * This is the amount the query must be shifted so the shared kmers line up
@@ -460,6 +606,7 @@ static int getHitDiff(long hit)
 	if(st == 0) return getHitP1(hit) - getHitP2(hit);
 	else return getHitP1(hit) + getHitP2(hit);
 }
+
 /*
  * Compares two encoded hits based on (in order)
  * 1. The target sequence id
@@ -474,6 +621,7 @@ static int compareHits(long a, long b)
 	if(shiftA != shiftB) return Long.compare(shiftA, shiftB);
 	return getHitDiff(a) - getHitDiff(b);
 }
+
 /*
  * Gets a list of (k, w)-minimizers from a string s
  */
@@ -588,6 +736,7 @@ static long[] getMinimizers(String s)
 	for(int i = 0; i<ans.length; i++) ans[i] = res.a[i];
 	return ans;
 }
+
 /*
  * Invertible hash function used in Minimap to avoid prioritizing poly-A tails
  */
@@ -602,6 +751,7 @@ static long hash(long val, long m)
 	x = (x + (x << 31)) & m;
 	return x;
 }
+
 /*
  * Encodes a hash value, position, and strand as a single 64-bit integer
  */
@@ -609,6 +759,7 @@ static long getMinimizer(long hash, int pos, int strand)
 {
 	return strand + (pos << 1) + (hash << (posBits + 1));
 }
+
 /*
  * A database of Minimizers represented as integer encoding seq/pos/strand
  */
@@ -618,12 +769,14 @@ static class MinimizerDatabase
 	long[] hashes;
 	long[] poss;
 	int size;
+	
 	MinimizerDatabase()
 	{
 		size = 0;
 		hashes = new long[16];
 		poss = new long[16];
 	}
+	
 	void put(long hash, long pos)
 	{
 		if(size == hashes.length)
@@ -642,6 +795,7 @@ static class MinimizerDatabase
 		poss[size] = pos;
 		size++;
 	}
+	
 	/*
 	 * Sort database and map minimizers to the start of range where they occur
 	 */
@@ -662,6 +816,7 @@ static class MinimizerDatabase
 		long finalTime = System.currentTimeMillis();
 		System.out.println("Time hashing database (ms): " + (finalTime - ntime));
 	}
+	
 	/*
 	 * Merge sort which sorts two lists according to the order of the first list
 	 */
@@ -686,6 +841,7 @@ static class MinimizerDatabase
 		a2 = sort(a2);
 		return merge(a1, a2);
 	}
+	
 	/*
 	 * Merge function used in merge sort
 	 */
@@ -721,23 +877,30 @@ static class MinimizerDatabase
 		return res;
 	}
 }
+
 /*
  * A faster ArrayList<Long> with limited functionality
  */
 static class LongList
 {
-	int size;
-	long[] a;
+	int size; // Number of elements in list
+	long[] a; // Values in list
+	
 	LongList(int n)
 	{
 		a = new long[n];
 		size = 0;
 	}
+	
 	LongList()
 	{
 		a = new long[16];
 		size = 0;
 	}
+	
+	/*
+	 * Adds x to the end of the list
+	 */
 	void add(long x)
 	{
 		if(size == a.length)
@@ -748,6 +911,10 @@ static class LongList
 		}
 		a[size++] = x;
 	}
+	
+	/*
+	 * Sorts the list by a given comparator
+	 */
 	void sort(Comparator<Long> cl)
 	{
 		Long[] res = new Long[size];
