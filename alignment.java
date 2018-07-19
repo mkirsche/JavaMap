@@ -3,7 +3,7 @@ import java.io.*;
 public class alignment {
 
 // Used to skip input/output command line args when running locally
-static boolean local = true;
+static boolean local = false;
 	
 // k is the length of kmers used for sketches
 static int k = 15;

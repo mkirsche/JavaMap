@@ -1,11 +1,26 @@
 import java.util.*;
 import java.io.*;
 public class containment {
+	static boolean local = true;
 public static void main(String[] args) throws IOException
 {
+	if(!local && args.length != 3)
+	{
+		System.out.println("Usage: java FileIntersect <pafFn> <readsFn> <outFn>");
+		return;
+	}
 	String pafFn = "/home/mkirsche/ecoli/oxford.paf";
-	Scanner pafInput = new Scanner(new FileInputStream(new File(pafFn)));
 	String readFn = "/home/mkirsche/ecoli/oxford.fasta";
+	String outFn = "/home/mkirsche/ecoli/oxford_filtered_miniasmclone.fasta";
+
+	if(args.length > 0)
+	{
+		pafFn = args[0];
+		readFn = args[1];
+		outFn = args[2];
+	}
+	
+	Scanner pafInput = new Scanner(new FileInputStream(new File(pafFn)));
 	Scanner readInput = new Scanner(new FileInputStream(new File(readFn)));
 	HashSet<String> contained = new HashSet<String>();
 	while(pafInput.hasNext())
@@ -20,16 +35,19 @@ public static void main(String[] args) throws IOException
 		else if(whichContained == 2) contained.add(cur.targetName);
 	}
 	System.out.println(contained.size());
-	String outFn = "/home/mkirsche/ecoli/oxford_filtered_miniasmclone.fasta";
 	PrintWriter out = new PrintWriter(new File(outFn));
+	int tot = 0;
 	while(readInput.hasNext())
 	{
+		tot++;
 		String name = readInput.next().substring(1);
 		readInput.nextLine();
 		String read = readInput.nextLine();
 		if(contained.contains(name)) continue;
 		out.println(name);
 	}
+	out.close();
+	System.out.println("Filtered " + contained.size() + " of " + tot + " reads");
 }
 static int o = 1000; // Max overhang length
 static double r = 0.8; // Max overhang to mapping length ratio
